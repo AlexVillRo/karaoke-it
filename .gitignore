@@ -47,3 +47,15 @@ next-env.d.ts
 # runtime uploads / generated catalog
 public/uploads/
 data/user-songs.json
+
+# runtime job state (fire-and-forget pipeline jobs)
+data/jobs/
+
+# python cache
+scripts/__pycache__/
+**/__pycache__/
+*.pyc
+
+# pipeline debug outputs (archivos temporales de pruebas)
+pipeline_*.json
+pipeline_*.log

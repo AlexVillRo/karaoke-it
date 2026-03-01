@@ -57,7 +57,7 @@ export async function POST(req: Request) {
     await createJob(jobId)
 
     // Fire-and-forget: no esperamos el pipeline, respondemos de inmediato
-    const params = { title, artist, audioUrl, audioFilePath: outputPath, originalFilename: originalName, mimeType: file.type, audioBuffer: buffer, providedLyrics: lyrics }
+    const params = { title, artist, audioUrl, audioFilePath: outputPath, providedLyrics: lyrics }
     ;(async () => {
       try {
         const song = await buildAutoKaraokeSong(params)

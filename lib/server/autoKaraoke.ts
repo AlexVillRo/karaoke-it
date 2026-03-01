@@ -10,9 +10,6 @@ export interface BuildSongParams {
   artist: string
   audioUrl: string
   audioFilePath: string
-  originalFilename: string
-  mimeType: string
-  audioBuffer: Buffer
   providedLyrics?: string
 }
 

@@ -37,7 +37,12 @@ export default class GameServer implements Party.Server {
   // ── Mensajes ──────────────────────────────────────────────────────────
 
   onMessage(message: string, sender: Party.Connection) {
-    const msg: ClientMessage = JSON.parse(message)
+    let msg: ClientMessage
+    try {
+      msg = JSON.parse(message)
+    } catch {
+      return // mensaje malformado, ignorar
+    }
 
     switch (msg.type) {
       case 'JOIN':
