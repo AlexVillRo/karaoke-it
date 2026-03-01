@@ -5,6 +5,7 @@ import { PLAYER_COLORS, SCORING } from '../lib/types'
 
 export default class GameServer implements Party.Server {
   state: RoomState
+  countdownTimer: ReturnType<typeof setInterval> | null = null
 
   constructor(readonly room: Party.Room) {
     this.state = {
@@ -13,6 +14,7 @@ export default class GameServer implements Party.Server {
       players: [],
       currentSong: null,
       songStartTime: null,
+      pausedAtSeconds: null,
       countdown: 3,
       round: 1,
     }
@@ -53,6 +55,18 @@ export default class GameServer implements Party.Server {
       case 'SONG_ENDED':
         this.handleSongEnded()
         break
+      case 'PAUSE':
+        this.handlePause(sender)
+        break
+      case 'RESUME':
+        this.handleResume(sender)
+        break
+      case 'BACK_TO_LOBBY':
+        this.handleBackToLobby(sender)
+        break
+      case 'CLOSE_ROOM':
+        this.handleCloseRoom(sender)
+        break
     }
   }
 
@@ -86,6 +100,11 @@ export default class GameServer implements Party.Server {
     const player = this.state.players.find(p => p.id === conn.id)
     if (!player?.isHost) return
 
+    if (this.countdownTimer) {
+      clearInterval(this.countdownTimer)
+      this.countdownTimer = null
+    }
+
     this.state.currentSong = song
     this.state.phase = 'COUNTDOWN'
     this.state.countdown = 3
@@ -94,15 +113,19 @@ export default class GameServer implements Party.Server {
 
     // Countdown 3 → 2 → 1 → PLAYING
     let count = 3
-    const tick = setInterval(() => {
+    this.countdownTimer = setInterval(() => {
       count--
       if (count > 0) {
         this.state.countdown = count
         this.broadcast()
       } else {
-        clearInterval(tick)
+        if (this.countdownTimer) {
+          clearInterval(this.countdownTimer)
+          this.countdownTimer = null
+        }
         this.state.phase = 'PLAYING'
         this.state.songStartTime = Date.now()
+        this.state.pausedAtSeconds = null
         this.state.countdown = 0
         this.broadcast()
       }
@@ -112,7 +135,8 @@ export default class GameServer implements Party.Server {
   private handlePitch(conn: Party.Connection, hz: number | null, _timestamp: number) {
     if (this.state.phase !== 'PLAYING' || !this.state.currentSong || !this.state.songStartTime) return
 
-    const currentTime = (Date.now() - this.state.songStartTime) / 1000
+    const lyricsOffset = this.state.currentSong.lyricsOffsetSeconds ?? 0
+    const currentTime = Math.max(0, (Date.now() - this.state.songStartTime) / 1000 - lyricsOffset)
     const activeNote = getActiveNote(this.state.currentSong.notes, currentTime)
     const playerMidi = hz ? hzToMidi(hz) : null
 
@@ -137,14 +161,75 @@ export default class GameServer implements Party.Server {
 
     this.state.phase = 'PLAYING'
     this.state.songStartTime = Date.now()
+    this.state.pausedAtSeconds = null
     this.state.players = this.state.players.map(p => ({ ...p, score: 0, currentPitch: null, currentMidi: null }))
     this.broadcast()
   }
 
+  private handlePause(conn: Party.Connection) {
+    const player = this.state.players.find(p => p.id === conn.id)
+    if (!player?.isHost || this.state.phase !== 'PLAYING' || !this.state.songStartTime) return
+
+    this.state.pausedAtSeconds = (Date.now() - this.state.songStartTime) / 1000
+    this.state.phase = 'PAUSED'
+    this.broadcast()
+  }
+
+  private handleResume(conn: Party.Connection) {
+    const player = this.state.players.find(p => p.id === conn.id)
+    if (!player?.isHost || this.state.phase !== 'PAUSED' || this.state.pausedAtSeconds == null) return
+
+    this.state.phase = 'PLAYING'
+    this.state.songStartTime = Date.now() - this.state.pausedAtSeconds * 1000
+    this.state.pausedAtSeconds = null
+    this.broadcast()
+  }
+
   private handleSongEnded() {
+    if (this.countdownTimer) {
+      clearInterval(this.countdownTimer)
+      this.countdownTimer = null
+    }
     this.state.phase = 'RESULTS'
     this.state.songStartTime = null
+    this.state.pausedAtSeconds = null
     this.broadcast()
+  }
+
+  private handleBackToLobby(conn: Party.Connection) {
+    const player = this.state.players.find(p => p.id === conn.id)
+    if (!player) return
+
+    if (this.countdownTimer) {
+      clearInterval(this.countdownTimer)
+      this.countdownTimer = null
+    }
+
+    this.state.phase = 'LOBBY'
+    this.state.currentSong = null
+    this.state.songStartTime = null
+    this.state.pausedAtSeconds = null
+    this.state.countdown = 3
+    this.state.players = this.state.players.map(p => ({
+      ...p,
+      score: 0,
+      currentPitch: null,
+      currentMidi: null,
+    }))
+    this.broadcast()
+  }
+
+  private handleCloseRoom(conn: Party.Connection) {
+    const player = this.state.players.find(p => p.id === conn.id)
+    if (!player?.isHost) return
+
+    if (this.countdownTimer) {
+      clearInterval(this.countdownTimer)
+      this.countdownTimer = null
+    }
+
+    const msg: ServerMessage = { type: 'ROOM_CLOSED' }
+    this.room.broadcast(JSON.stringify(msg))
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────

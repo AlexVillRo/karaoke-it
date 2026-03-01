@@ -1,6 +1,7 @@
 'use client'
 
 import { use, useCallback, useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import usePartySocket from 'partysocket/react'
 import { PitchDetector } from 'pitchy'
 import { useGameStore } from '@/stores/gameStore'
@@ -13,6 +14,7 @@ import clsx from 'clsx'
 
 export default function PlayerPage({ params }: { params: Promise<{ roomCode: string }> }) {
   const { roomCode } = use(params)
+  const router = useRouter()
   const { roomState, setRoomState, localPlayerId, setLocalPlayerId, localHz, setLocalHz } = useGameStore()
 
   const [name, setName] = useState('')
@@ -29,7 +31,8 @@ export default function PlayerPage({ params }: { params: Promise<{ roomCode: str
 
   // Refs para el audio pipeline
   const audioCtxRef = useRef<AudioContext | null>(null)
-  const rafRef      = useRef<number>(0)
+  const rafRef = useRef<number>(0)
+  const visibilityCleanupRef = useRef<(() => void) | null>(null)
 
   const socket = usePartySocket({
     host: getPartyHost(),
@@ -49,6 +52,7 @@ export default function PlayerPage({ params }: { params: Promise<{ roomCode: str
     onMessage(evt) {
       const msg: ServerMessage = JSON.parse(evt.data)
       if (msg.type === 'STATE') setRoomState(msg.state)
+      if (msg.type === 'ROOM_CLOSED') router.push('/')
     },
   })
 
@@ -84,7 +88,18 @@ export default function PlayerPage({ params }: { params: Promise<{ roomCode: str
       setMicActive(true)
       setMicError('')
 
+      // Reanudar AudioContext si el navegador lo suspendió (p. ej. al cambiar de pestaña)
+      const resumeIfSuspended = () => {
+        if (ctx.state === 'suspended') ctx.resume().catch(() => {})
+      }
+      document.addEventListener('visibilitychange', resumeIfSuspended)
+
       function tick() {
+        resumeIfSuspended()
+        if (ctx.state !== 'running') {
+          rafRef.current = requestAnimationFrame(tick)
+          return
+        }
         analyser.getFloatTimeDomainData(buffer)
         const [pitch, clarity] = detector.findPitch(buffer, ctx.sampleRate)
         const hz = clarity > 0.85 && pitch > 60 && pitch < 1200 ? pitch : null
@@ -94,6 +109,9 @@ export default function PlayerPage({ params }: { params: Promise<{ roomCode: str
       }
       rafRef.current = requestAnimationFrame(tick)
 
+      visibilityCleanupRef.current = () => {
+        document.removeEventListener('visibilitychange', resumeIfSuspended)
+      }
     } catch (err) {
       if (err instanceof DOMException) {
         if (err.name === 'NotAllowedError') {
@@ -111,6 +129,8 @@ export default function PlayerPage({ params }: { params: Promise<{ roomCode: str
 
   const stopMic = useCallback(() => {
     cancelAnimationFrame(rafRef.current)
+    visibilityCleanupRef.current?.()
+    visibilityCleanupRef.current = null
     audioCtxRef.current?.close()
     audioCtxRef.current = null
     setMicActive(false)
@@ -134,6 +154,10 @@ export default function PlayerPage({ params }: { params: Promise<{ roomCode: str
     socket.send(JSON.stringify(msg))
     setJoined(true)
   }
+
+  const handleBackToLobby = useCallback(() => {
+    socket.send(JSON.stringify({ type: 'BACK_TO_LOBBY' } satisfies ClientMessage))
+  }, [socket])
 
   // ── Derivados ─────────────────────────────────────────────────────────
 
@@ -246,7 +270,11 @@ export default function PlayerPage({ params }: { params: Promise<{ roomCode: str
 
   // ── Playing ───────────────────────────────────────────────────────────
 
-  if (roomState?.phase === 'PLAYING' && roomState.currentSong) {
+  if ((roomState?.phase === 'PLAYING' || roomState?.phase === 'PAUSED') && roomState.currentSong) {
+    const currentTime = roomState.phase === 'PAUSED' && roomState.pausedAtSeconds != null
+      ? roomState.pausedAtSeconds
+      : (roomState.songStartTime ? (Date.now() - roomState.songStartTime) / 1000 : 0)
+    const activeNotePaused = roomState.currentSong ? getActiveNote(roomState.currentSong.notes, currentTime) : null
     return (
       <LivePlayerView
         roomState={roomState}
@@ -255,10 +283,12 @@ export default function PlayerPage({ params }: { params: Promise<{ roomCode: str
         micError={micError}
         localHz={localHz}
         playerMidi={playerMidi}
-        activeNoteMidi={activeNote?.pitch ?? null}
+        activeNoteMidi={(roomState.phase === 'PAUSED' ? activeNotePaused : activeNote)?.pitch ?? null}
         accuracy={accuracy}
         onStartMic={startMic}
         onStopMic={stopMic}
+        onBackToLobby={handleBackToLobby}
+        isPaused={roomState.phase === 'PAUSED'}
       />
     )
   }
@@ -266,30 +296,89 @@ export default function PlayerPage({ params }: { params: Promise<{ roomCode: str
   // ── Results ───────────────────────────────────────────────────────────
 
   if (roomState?.phase === 'RESULTS') {
-    const sorted  = [...(roomState.players.filter(p => !p.isHost))].sort((a, b) => b.score - a.score)
-    const myRank  = sorted.findIndex(p => p.id === localPlayerId) + 1
+    const sorted = [...(roomState.players.filter(p => !p.isHost))].sort((a, b) => b.score - a.score)
+    const myRank = sorted.findIndex(p => p.id === localPlayerId) + 1
+    const [first, second, third] = sorted
+    const rest = sorted.slice(3)
+    const rankLabel = ['1er lugar', '2do lugar', '3er lugar']
     return (
-      <div className="min-h-screen bg-[#0a0a0f] text-white flex flex-col items-center justify-center p-8 gap-6">
-        <p className="text-white/40 text-sm">Tu resultado</p>
-        <div className="text-7xl font-black" style={{ color: localPlayer?.color ?? '#7c3aed' }}>
-          #{myRank}
+      <div className="min-h-screen bg-[#0a0a0f] text-white flex flex-col items-center justify-center p-6 gap-8">
+        <div className="text-center">
+          <p className="text-white/40 text-sm uppercase tracking-widest">Resultados</p>
+          {myRank > 0 && (
+            <p className="text-lg font-bold mt-1" style={{ color: localPlayer?.color }}>
+              {rankLabel[myRank - 1] ?? `#${myRank}`}
+            </p>
+          )}
         </div>
-        <p className="text-2xl font-bold">{localPlayer?.score.toLocaleString()} pts</p>
-        <div className="flex flex-col gap-2 mt-4 w-full max-w-xs">
-          {sorted.map((p, i) => (
-            <div
-              key={p.id}
-              className={clsx(
-                'flex justify-between items-center px-4 py-2 rounded-lg text-sm',
-                p.id === localPlayerId ? 'bg-white/10' : 'bg-white/5'
-              )}
-            >
-              <span className="text-white/40">#{i + 1}</span>
-              <span style={{ color: p.color }}>{p.name}</span>
-              <span className="font-mono">{p.score.toLocaleString()}</span>
-            </div>
-          ))}
+
+        {/* Podio: 2do | 1ro | 3ro */}
+        <div className="flex items-end gap-2 w-full max-w-xs justify-center">
+          {[
+            { player: second, rank: 2, blockH: 80 },
+            { player: first,  rank: 1, blockH: 116 },
+            { player: third,  rank: 3, blockH: 56 },
+          ].map(({ player, rank, blockH }) =>
+            player ? (
+              <div key={player.id} className="flex flex-col items-center gap-1 flex-1">
+                {/* Avatar */}
+                <div
+                  className={clsx(
+                    'w-12 h-12 rounded-full flex items-center justify-center text-lg font-black shrink-0',
+                    player.id === localPlayerId && 'ring-2 ring-white ring-offset-2 ring-offset-[#0a0a0f]'
+                  )}
+                  style={{ backgroundColor: player.color }}
+                >
+                  {player.name.charAt(0).toUpperCase()}
+                </div>
+                {/* Nombre */}
+                <p className="text-xs font-bold text-center w-full truncate px-1">
+                  {player.name}
+                </p>
+                {/* Puntos */}
+                <p className="text-[10px] text-white/50 font-mono leading-none mb-1">
+                  {player.score.toLocaleString()}
+                </p>
+                {/* Bloque del podio */}
+                <div
+                  className="w-full rounded-t-xl flex items-center justify-center font-black text-2xl"
+                  style={{
+                    height: blockH,
+                    backgroundColor: player.color + '22',
+                    borderTop: `3px solid ${player.color}`,
+                    borderLeft: `1px solid ${player.color}44`,
+                    borderRight: `1px solid ${player.color}44`,
+                    color: player.color,
+                  }}
+                >
+                  {rank}
+                </div>
+              </div>
+            ) : (
+              <div key={rank} className="flex-1" />
+            )
+          )}
         </div>
+
+        {/* 4to en adelante */}
+        {rest.length > 0 && (
+          <div className="flex flex-col gap-2 w-full max-w-xs">
+            {rest.map((p, i) => (
+              <div
+                key={p.id}
+                className={clsx(
+                  'flex items-center gap-3 px-4 py-2 rounded-xl text-sm',
+                  p.id === localPlayerId ? 'bg-white/10 border border-white/20' : 'bg-white/5'
+                )}
+              >
+                <span className="text-white/40 w-4 shrink-0">#{i + 4}</span>
+                <span style={{ color: p.color }} className="font-bold flex-1 truncate">{p.name}</span>
+                <span className="font-mono text-xs">{p.score.toLocaleString()}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <HoldToLobbyButton onConfirm={handleBackToLobby} />
       </div>
     )
   }
@@ -310,7 +399,7 @@ export default function PlayerPage({ params }: { params: Promise<{ roomCode: str
 
 function LivePlayerView({
   roomState, localPlayer, micActive, micError, localHz,
-  playerMidi, activeNoteMidi, accuracy, onStartMic, onStopMic,
+  playerMidi, activeNoteMidi, accuracy, onStartMic, onStopMic, onBackToLobby, isPaused,
 }: {
   roomState: RoomState
   localPlayer: Player | null
@@ -322,15 +411,30 @@ function LivePlayerView({
   accuracy: ReturnType<typeof evaluatePitch>['accuracy']
   onStartMic: () => void
   onStopMic: () => void
+  onBackToLobby: () => void
+  isPaused?: boolean
 }) {
-  const [currentTime, setCurrentTime] = useState(0)
+  const lyricsOffset = roomState.currentSong?.lyricsOffsetSeconds ?? 0
+  const [adjustedTime, setAdjustedTime] = useState(() =>
+    roomState.songStartTime
+      ? (Date.now() - roomState.songStartTime) / 1000 - lyricsOffset
+      : -lyricsOffset
+  )
 
   useEffect(() => {
+    if (isPaused && roomState.pausedAtSeconds != null) {
+      setAdjustedTime(roomState.pausedAtSeconds - lyricsOffset)
+      return
+    }
     const id = setInterval(() => {
-      if (roomState.songStartTime) setCurrentTime((Date.now() - roomState.songStartTime) / 1000)
+      if (roomState.songStartTime)
+        setAdjustedTime((Date.now() - roomState.songStartTime) / 1000 - lyricsOffset)
     }, 50)
     return () => clearInterval(id)
-  }, [roomState.songStartTime])
+  }, [roomState.songStartTime, isPaused, roomState.pausedAtSeconds, lyricsOffset])
+
+  const isInIntro = adjustedTime < 0
+  const displayTime = Math.max(0, adjustedTime)
 
   const accuracyColors = { PERFECT: 'text-emerald-400', GOOD: 'text-cyan-400', OK: 'text-amber-400', MISS: 'text-white/20' }
   const accuracyBg     = { PERFECT: '#10b981', GOOD: '#06b6d4', OK: '#f59e0b', MISS: '#ef4444' }
@@ -362,8 +466,22 @@ function LivePlayerView({
         <p className="text-amber-400 text-xs text-center px-6 pb-2 leading-relaxed">{micError}</p>
       )}
 
-      <div className="flex-1 flex items-center justify-center py-4">
-        <LyricDisplay notes={roomState.currentSong!.notes} currentTime={currentTime} compact />
+      <div className="flex-1 flex items-center justify-center py-4 relative">
+        {isPaused && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/30 z-10">
+            <span className="text-xl font-bold text-white/90">Pausado</span>
+          </div>
+        )}
+        {isInIntro ? (
+          <div className="flex flex-col items-center gap-2 text-white/30">
+            <p className="text-sm tracking-widest">♪</p>
+            {adjustedTime > -5 && (
+              <p className="text-6xl font-black text-violet-400 tabular-nums">{Math.ceil(-adjustedTime)}</p>
+            )}
+          </div>
+        ) : (
+          <LyricDisplay notes={roomState.currentSong!.notes} currentTime={displayTime} compact />
+        )}
       </div>
 
       <div className="flex flex-col items-center gap-3 px-8 pb-8">
@@ -392,7 +510,62 @@ function LivePlayerView({
             />
           )}
         </div>
+        <HoldToLobbyButton onConfirm={onBackToLobby} />
       </div>
     </div>
+  )
+}
+
+function HoldToLobbyButton({ onConfirm }: { onConfirm: () => void }) {
+  const HOLD_MS = 1200
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [holding, setHolding] = useState(false)
+  const [progress, setProgress] = useState(0)
+
+  const clearHold = useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current)
+      timerRef.current = null
+    }
+    setHolding(false)
+    setProgress(0)
+  }, [])
+
+  const startHold = useCallback(() => {
+    if (timerRef.current) return
+    setHolding(true)
+    const start = Date.now()
+    timerRef.current = setInterval(() => {
+      const elapsed = Date.now() - start
+      const pct = Math.min(1, elapsed / HOLD_MS)
+      setProgress(pct)
+      if (pct >= 1) {
+        clearHold()
+        onConfirm()
+      }
+    }, 30)
+  }, [clearHold, onConfirm])
+
+  useEffect(() => clearHold, [clearHold])
+
+  return (
+    <button
+      type="button"
+      onMouseDown={startHold}
+      onMouseUp={clearHold}
+      onMouseLeave={clearHold}
+      onTouchStart={startHold}
+      onTouchEnd={clearHold}
+      onTouchCancel={clearHold}
+      className="w-full max-w-xs relative overflow-hidden border border-red-500/40 rounded-xl px-4 py-3 text-sm font-bold text-red-300 bg-red-500/10"
+    >
+      <span
+        className="absolute inset-y-0 left-0 bg-red-500/30"
+        style={{ width: `${Math.round(progress * 100)}%`, transition: holding ? 'none' : 'width 120ms ease-out' }}
+      />
+      <span className="relative z-10">
+        {holding ? 'Sigue presionando...' : 'Mantener oprimido para salir al lobby'}
+      </span>
+    </button>
   )
 }

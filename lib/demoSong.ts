@@ -1,66 +1,73 @@
 import type { Song } from './types'
 
-// Demo: "Cumpleaños Feliz" — canción de prueba con notas reales
-// El audioUrl apunta a un archivo libre de derechos en Wikipedia
-// Para producción, reemplázalo con tu propio audio
+// Demo: "Las Mañanitas" — canción tradicional mexicana
+// Audio: Wikimedia Commons (CC-BY-SA 3.0) — ~33 s, aprox. 90 BPM en 3/4
+// Notas en G mayor: G4=67 A4=69 B4=71 C5=72 D5=74 E5=76
 
 export const DEMO_SONG: Song = {
-  id: 'cumpleanos-feliz',
-  title: 'Cumpleaños Feliz',
-  artist: 'Tradicional',
-  audioUrl: 'https://upload.wikimedia.org/wikipedia/commons/a/a0/Happy_Birthday_to_You.ogg',
+  id: 'las-mananitas',
+  title: 'Las Mañanitas',
+  artist: 'Tradicional mexicana',
+  audioUrl: 'https://upload.wikimedia.org/wikipedia/commons/b/b2/Las_Mananitas.ogg',
   bpm: 90,
   notes: [
-    // "Cum-" (0.5s)
-    { startTime: 0.5,  duration: 0.4, pitch: 60, syllable: 'Cum-',    lineIdx: 0 },
-    // "plea-" (0.9s)
-    { startTime: 0.9,  duration: 0.4, pitch: 60, syllable: 'plea-',   lineIdx: 0 },
-    // "ños" (1.3s)
-    { startTime: 1.3,  duration: 0.8, pitch: 62, syllable: 'ños ',    lineIdx: 0 },
-    // "fe-" (2.1s)
-    { startTime: 2.1,  duration: 0.4, pitch: 60, syllable: 'fe-',     lineIdx: 0 },
-    // "liz" (2.5s)
-    { startTime: 2.5,  duration: 0.8, pitch: 65, syllable: 'liz,',    lineIdx: 0 },
-    // "Cum-" (3.3s)
-    { startTime: 3.3,  duration: 0.4, pitch: 64, syllable: 'Cum-',    lineIdx: 0 },
-    // "plea-" (3.7s)
-    { startTime: 3.7,  duration: 0.4, pitch: 64, syllable: 'plea-',   lineIdx: 0 },
-    // "ños" (4.1s)
-    { startTime: 4.1,  duration: 1.2, pitch: 62, syllable: 'ños ',    lineIdx: 0 },
+    // ── "Estas son las mañanitas" ──────────────────────── lineIdx: 0
+    { startTime: 0.3,  duration: 0.6, pitch: 67, syllable: 'Es-',    lineIdx: 0 },
+    { startTime: 0.9,  duration: 0.6, pitch: 67, syllable: 'tas ',   lineIdx: 0 },
+    { startTime: 1.5,  duration: 0.6, pitch: 67, syllable: 'son ',   lineIdx: 0 },
+    { startTime: 2.1,  duration: 0.6, pitch: 74, syllable: 'las ',   lineIdx: 0 },
+    { startTime: 2.7,  duration: 0.6, pitch: 71, syllable: 'ma-',    lineIdx: 0 },
+    { startTime: 3.3,  duration: 0.6, pitch: 67, syllable: 'ña-',    lineIdx: 0 },
+    { startTime: 3.9,  duration: 0.6, pitch: 74, syllable: 'ni-',    lineIdx: 0 },
+    { startTime: 4.5,  duration: 1.2, pitch: 71, syllable: 'tas',    lineIdx: 0 },
 
-    // "Cum-" (5.3s)
-    { startTime: 5.3,  duration: 0.4, pitch: 60, syllable: 'Cum-',    lineIdx: 1 },
-    // "plea-" (5.7s)
-    { startTime: 5.7,  duration: 0.4, pitch: 60, syllable: 'plea-',   lineIdx: 1 },
-    // "ños" (6.1s)
-    { startTime: 6.1,  duration: 0.8, pitch: 67, syllable: 'ños ',    lineIdx: 1 },
-    // "fe-" (6.9s)
-    { startTime: 6.9,  duration: 0.4, pitch: 65, syllable: 'fe-',     lineIdx: 1 },
-    // "liz" (7.3s)
-    { startTime: 7.3,  duration: 1.2, pitch: 60, syllable: 'liz,',    lineIdx: 1 },
+    // ── "que cantaba el rey David" ─────────────────────── lineIdx: 1
+    { startTime: 5.7,  duration: 0.6, pitch: 71, syllable: 'que ',   lineIdx: 1 },
+    { startTime: 6.3,  duration: 0.6, pitch: 72, syllable: 'can-',   lineIdx: 1 },
+    { startTime: 6.9,  duration: 0.6, pitch: 71, syllable: 'ta-',    lineIdx: 1 },
+    { startTime: 7.5,  duration: 0.6, pitch: 69, syllable: 'ba ',    lineIdx: 1 },
+    { startTime: 8.1,  duration: 0.6, pitch: 67, syllable: 'el ',    lineIdx: 1 },
+    { startTime: 8.7,  duration: 0.6, pitch: 74, syllable: 'rey ',   lineIdx: 1 },
+    { startTime: 9.3,  duration: 0.6, pitch: 71, syllable: 'Da-',    lineIdx: 1 },
+    { startTime: 9.9,  duration: 1.2, pitch: 69, syllable: 'vid',    lineIdx: 1 },
 
-    // "Cum-" (8.5s)
-    { startTime: 8.5,  duration: 0.4, pitch: 60, syllable: 'Cum-',    lineIdx: 2 },
-    // "plea-" (8.9s)
-    { startTime: 8.9,  duration: 0.4, pitch: 60, syllable: 'plea-',   lineIdx: 2 },
-    // "ños" (9.3s)
-    { startTime: 9.3,  duration: 0.8, pitch: 69, syllable: 'ños ',    lineIdx: 2 },
-    // "a" (10.1s)
-    { startTime: 10.1, duration: 0.4, pitch: 65, syllable: 'a ',      lineIdx: 2 },
-    // "[nombre]" (10.5s)
-    { startTime: 10.5, duration: 1.2, pitch: 64, syllable: '[nombre]',lineIdx: 2 },
-    // "que" (11.7s)
-    { startTime: 11.7, duration: 0.4, pitch: 62, syllable: 'que ',    lineIdx: 2 },
+    // ── "a las muchachas bonitas" ──────────────────────── lineIdx: 2
+    { startTime: 11.1, duration: 0.6, pitch: 67, syllable: 'a ',     lineIdx: 2 },
+    { startTime: 11.7, duration: 0.6, pitch: 67, syllable: 'las ',   lineIdx: 2 },
+    { startTime: 12.3, duration: 0.6, pitch: 69, syllable: 'mu-',    lineIdx: 2 },
+    { startTime: 12.9, duration: 0.6, pitch: 71, syllable: 'cha-',   lineIdx: 2 },
+    { startTime: 13.5, duration: 0.6, pitch: 71, syllable: 'chas ',  lineIdx: 2 },
+    { startTime: 14.1, duration: 0.6, pitch: 72, syllable: 'bo-',    lineIdx: 2 },
+    { startTime: 14.7, duration: 0.6, pitch: 71, syllable: 'ni-',    lineIdx: 2 },
+    { startTime: 15.3, duration: 1.2, pitch: 69, syllable: 'tas',    lineIdx: 2 },
 
-    // "Dios" (12.1s)
-    { startTime: 12.1, duration: 0.4, pitch: 67, syllable: 'Dios ',   lineIdx: 3 },
-    // "te" (12.5s)
-    { startTime: 12.5, duration: 0.4, pitch: 65, syllable: 'te ',     lineIdx: 3 },
-    // "ben-" (12.9s)
-    { startTime: 12.9, duration: 0.4, pitch: 64, syllable: 'ben-',    lineIdx: 3 },
-    // "di-" (13.3s)
-    { startTime: 13.3, duration: 0.4, pitch: 60, syllable: 'di-',     lineIdx: 3 },
-    // "ga" (13.7s)
-    { startTime: 13.7, duration: 1.5, pitch: 62, syllable: 'ga',      lineIdx: 3 },
+    // ── "se las cantamos aquí" ─────────────────────────── lineIdx: 3
+    { startTime: 16.5, duration: 0.6, pitch: 71, syllable: 'se ',    lineIdx: 3 },
+    { startTime: 17.1, duration: 0.6, pitch: 72, syllable: 'las ',   lineIdx: 3 },
+    { startTime: 17.7, duration: 0.6, pitch: 71, syllable: 'can-',   lineIdx: 3 },
+    { startTime: 18.3, duration: 0.6, pitch: 69, syllable: 'ta-',    lineIdx: 3 },
+    { startTime: 18.9, duration: 0.6, pitch: 69, syllable: 'mos ',   lineIdx: 3 },
+    { startTime: 19.5, duration: 0.6, pitch: 67, syllable: 'a-',     lineIdx: 3 },
+    { startTime: 20.1, duration: 1.5, pitch: 67, syllable: 'quí',    lineIdx: 3 },
+
+    // ── "Despierta mi bien, despierta" ────────────────── lineIdx: 4
+    { startTime: 21.6, duration: 0.6, pitch: 74, syllable: 'Des-',   lineIdx: 4 },
+    { startTime: 22.2, duration: 0.6, pitch: 74, syllable: 'pier-',  lineIdx: 4 },
+    { startTime: 22.8, duration: 0.6, pitch: 74, syllable: 'ta ',    lineIdx: 4 },
+    { startTime: 23.4, duration: 0.6, pitch: 76, syllable: 'mi ',    lineIdx: 4 },
+    { startTime: 24.0, duration: 0.6, pitch: 74, syllable: 'bien, ', lineIdx: 4 },
+    { startTime: 24.6, duration: 0.6, pitch: 71, syllable: 'des-',   lineIdx: 4 },
+    { startTime: 25.2, duration: 0.6, pitch: 74, syllable: 'pier-',  lineIdx: 4 },
+    { startTime: 25.8, duration: 1.2, pitch: 71, syllable: 'ta',     lineIdx: 4 },
+
+    // ── "mira que ya amaneció" ────────────────────────── lineIdx: 5
+    { startTime: 27.0, duration: 0.6, pitch: 67, syllable: 'mi-',    lineIdx: 5 },
+    { startTime: 27.6, duration: 0.6, pitch: 69, syllable: 'ra ',    lineIdx: 5 },
+    { startTime: 28.2, duration: 0.6, pitch: 71, syllable: 'que ',   lineIdx: 5 },
+    { startTime: 28.8, duration: 0.6, pitch: 74, syllable: 'ya ',    lineIdx: 5 },
+    { startTime: 29.4, duration: 0.6, pitch: 71, syllable: 'a-',     lineIdx: 5 },
+    { startTime: 30.0, duration: 0.6, pitch: 69, syllable: 'ma-',    lineIdx: 5 },
+    { startTime: 30.6, duration: 0.6, pitch: 67, syllable: 'ne-',    lineIdx: 5 },
+    { startTime: 31.2, duration: 1.5, pitch: 67, syllable: 'ció',    lineIdx: 5 },
   ],
 }

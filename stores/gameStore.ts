@@ -49,7 +49,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   currentTime: () => {
     const { roomState } = get()
-    if (!roomState?.songStartTime) return 0
+    if (!roomState) return 0
+    if (roomState.phase === 'PAUSED' && roomState.pausedAtSeconds != null) return roomState.pausedAtSeconds
+    if (!roomState.songStartTime) return 0
     return (Date.now() - roomState.songStartTime) / 1000
   },
 }))

@@ -15,6 +15,7 @@ export interface Song {
   audioUrl: string    // URL pública del audio
   bpm: number
   notes: SongNote[]
+  lyricsOffsetSeconds?: number  // segundos desde el inicio del audio hasta la primera letra
 }
 
 // ─── Players ───────────────────────────────────────────────────────────────
@@ -39,14 +40,15 @@ export interface Player {
 
 // ─── Room ──────────────────────────────────────────────────────────────────
 
-export type GamePhase = 'LOBBY' | 'COUNTDOWN' | 'PLAYING' | 'RESULTS'
+export type GamePhase = 'LOBBY' | 'COUNTDOWN' | 'PLAYING' | 'PAUSED' | 'RESULTS'
 
 export interface RoomState {
   roomCode: string
   phase: GamePhase
   players: Player[]
   currentSong: Song | null
-  songStartTime: number | null  // Date.now() cuando empezó la canción
+  songStartTime: number | null  // Date.now() cuando empezó la canción (o reanudó)
+  pausedAtSeconds: number | null  // cuando phase === 'PAUSED', tiempo en segundos donde se pausó
   countdown: number             // 3, 2, 1, 0
   round: number
 }
@@ -59,12 +61,17 @@ export type ClientMessage =
   | { type: 'START_GAME';   song: Song }
   | { type: 'RESTART_SONG' }
   | { type: 'SONG_ENDED' }
+  | { type: 'PAUSE' }
+  | { type: 'RESUME' }
+  | { type: 'BACK_TO_LOBBY' }
+  | { type: 'CLOSE_ROOM' }
 
 // ─── WebSocket Messages: Servidor → Cliente ────────────────────────────────
 
 export type ServerMessage =
-  | { type: 'STATE';   state: RoomState }
-  | { type: 'ERROR';   message: string }
+  | { type: 'STATE';       state: RoomState }
+  | { type: 'ERROR';       message: string }
+  | { type: 'ROOM_CLOSED' }
 
 // ─── Scoring ───────────────────────────────────────────────────────────────
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { Fragment, useMemo } from 'react'
 import clsx from 'clsx'
 import type { SongNote } from '@/lib/types'
 
@@ -47,7 +47,7 @@ export function LyricDisplay({ notes, currentTime, compact = false }: Props) {
           <div
             key={lineIdx}
             className={clsx(
-              'flex flex-wrap justify-center gap-x-0.5 transition-all duration-300',
+              'flex flex-wrap justify-center gap-x-0 transition-all duration-300',
               isActive
                 ? compact ? 'text-2xl font-bold' : 'text-4xl font-bold'
                 : compact ? 'text-lg text-white/40' : 'text-2xl text-white/40'
@@ -55,6 +55,10 @@ export function LyricDisplay({ notes, currentTime, compact = false }: Props) {
             style={{ fontFamily: "'Syne', sans-serif" }}
           >
             {lineNotes.map((note, i) => {
+              // Las sílabas terminan con ' ' para marcar fin de palabra (word boundary)
+              const isWordEnd = note.syllable.endsWith(' ')
+              const text = note.syllable.trimEnd()
+
               const isPast    = currentTime >= note.startTime + note.duration
               const isCurrent = currentTime >= note.startTime && currentTime < note.startTime + note.duration
               const progress  = isCurrent
@@ -62,24 +66,31 @@ export function LyricDisplay({ notes, currentTime, compact = false }: Props) {
                 : 0
 
               return (
-                <span key={i} className="relative inline-block">
-                  {/* Texto base */}
-                  <span className={clsx(
-                    isActive ? 'text-white/30' : 'text-white/20'
-                  )}>
-                    {note.syllable}
+                <Fragment key={i}>
+                  <span className="relative inline-block">
+                    {/* Texto base */}
+                    <span className={clsx(
+                      isActive ? 'text-white/30' : 'text-white/20'
+                    )}>
+                      {text}
+                    </span>
+
+                    {/* Overlay de progreso (fill de izquierda a derecha) */}
+                    {isActive && (isPast || isCurrent) && (
+                      <span
+                        className="absolute inset-0 overflow-hidden text-white"
+                        style={{ clipPath: `inset(0 ${100 - (isPast ? 100 : progress * 100)}% 0 0)` }}
+                      >
+                        {text}
+                      </span>
+                    )}
                   </span>
 
-                  {/* Overlay de progreso (como un fill de izquierda a derecha) */}
-                  {isActive && (isPast || isCurrent) && (
-                    <span
-                      className="absolute inset-0 overflow-hidden text-white"
-                      style={{ clipPath: `inset(0 ${100 - (isPast ? 100 : progress * 100)}% 0 0)` }}
-                    >
-                      {note.syllable}
-                    </span>
+                  {/* Separador de palabra: espacio proporcional al font-size */}
+                  {isWordEnd && (
+                    <span className="inline-block w-[0.28em]" aria-hidden="true" />
                   )}
-                </span>
+                </Fragment>
               )
             })}
           </div>
