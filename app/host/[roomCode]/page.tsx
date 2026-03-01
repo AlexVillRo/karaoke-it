@@ -32,28 +32,31 @@ export default function HostPage({ params }: { params: Promise<{ roomCode: strin
     },
   })
 
-  // Cuando el juego pasa a PLAYING, reproducir el audio
+  // Reproducir / reiniciar audio cada vez que cambia songStartTime
   useEffect(() => {
-    if (roomState?.phase === 'PLAYING' && roomState.currentSong && !songStartedRef.current) {
-      songStartedRef.current = true
+    if (roomState?.phase === 'PLAYING' && roomState.currentSong && roomState.songStartTime) {
       const audio = audioRef.current
-      if (audio) {
-        audio.src = roomState.currentSong.audioUrl
-        audio.play().catch(console.error)
-        audio.onended = () => {
-          const msg: ClientMessage = { type: 'SONG_ENDED' }
-          socket.send(JSON.stringify(msg))
-          songStartedRef.current = false
-        }
+      if (!audio) return
+      audio.src = roomState.currentSong.audioUrl
+      audio.currentTime = 0
+      audio.play().catch(console.error)
+      audio.onended = () => {
+        const msg: ClientMessage = { type: 'SONG_ENDED' }
+        socket.send(JSON.stringify(msg))
       }
     }
     if (roomState?.phase !== 'PLAYING') {
-      songStartedRef.current = false
+      audioRef.current?.pause()
     }
-  }, [roomState?.phase, roomState?.currentSong, socket])
+  }, [roomState?.phase, roomState?.songStartTime, socket])
 
   const handleStartGame = useCallback((song: Song) => {
     const msg: ClientMessage = { type: 'START_GAME', song }
+    socket.send(JSON.stringify(msg))
+  }, [socket])
+
+  const handleRestart = useCallback(() => {
+    const msg: ClientMessage = { type: 'RESTART_SONG' }
     socket.send(JSON.stringify(msg))
   }, [socket])
 
@@ -102,8 +105,16 @@ export default function HostPage({ params }: { params: Promise<{ roomCode: strin
               <p className="font-bold text-xl">{roomState.currentSong.title}</p>
               <p className="text-white/40 text-sm">{roomState.currentSong.artist}</p>
             </div>
-            <div className="bg-white/5 rounded-xl px-4 py-2 font-mono text-white/40 text-sm">
-              {roomCode.toUpperCase()}
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleRestart}
+                className="bg-white/10 hover:bg-amber-500/20 border border-white/10 hover:border-amber-500/50 text-white/60 hover:text-amber-400 text-xs font-bold px-3 py-2 rounded-lg transition-all"
+              >
+                ↺ Reiniciar
+              </button>
+              <div className="bg-white/5 rounded-xl px-4 py-2 font-mono text-white/40 text-sm">
+                {roomCode.toUpperCase()}
+              </div>
             </div>
           </div>
 
@@ -134,17 +145,20 @@ export default function HostPage({ params }: { params: Promise<{ roomCode: strin
           <div className="w-full max-w-md">
             <ScoreBoard players={roomState.players.filter(p => !p.isHost)} />
           </div>
-          <button
-            onClick={() => {
-              const msg: ClientMessage = { type: 'JOIN', name: HOST_NAME, isHost: true }
-              socket.send(JSON.stringify(msg))
-              // Volver al lobby recargando
-              window.location.reload()
-            }}
-            className="bg-violet-600 hover:bg-violet-500 text-white font-bold py-3 px-8 rounded-xl transition-colors"
-          >
-            Jugar otra vez
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={handleRestart}
+              className="bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-400 font-bold py-3 px-6 rounded-xl transition-colors"
+            >
+              ↺ Repetir canción
+            </button>
+            <button
+              onClick={() => window.location.reload()}
+              className="bg-violet-600 hover:bg-violet-500 text-white font-bold py-3 px-6 rounded-xl transition-colors"
+            >
+              Jugar otra vez
+            </button>
+          </div>
         </div>
       )}
     </div>

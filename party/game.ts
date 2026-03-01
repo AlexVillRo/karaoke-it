@@ -47,6 +47,9 @@ export default class GameServer implements Party.Server {
       case 'PITCH':
         this.handlePitch(sender, msg.hz, msg.timestamp)
         break
+      case 'RESTART_SONG':
+        this.handleRestartSong(sender)
+        break
       case 'SONG_ENDED':
         this.handleSongEnded()
         break
@@ -125,6 +128,16 @@ export default class GameServer implements Party.Server {
       }
     })
 
+    this.broadcast()
+  }
+
+  private handleRestartSong(conn: Party.Connection) {
+    const player = this.state.players.find(p => p.id === conn.id)
+    if (!player?.isHost || !this.state.currentSong) return
+
+    this.state.phase = 'PLAYING'
+    this.state.songStartTime = Date.now()
+    this.state.players = this.state.players.map(p => ({ ...p, score: 0, currentPitch: null, currentMidi: null }))
     this.broadcast()
   }
 

@@ -5,9 +5,12 @@
  * - En producción, usa la variable de entorno NEXT_PUBLIC_PARTYKIT_HOST
  */
 export function getPartyHost(): string {
-  if (process.env.NODE_ENV === 'production') {
-    return process.env.NEXT_PUBLIC_PARTYKIT_HOST ?? 'karaoke-it.alexvillro.partykit.dev'
-  }
+  // Env var siempre tiene prioridad (túneles, producción, etc.)
+  const envHost = process.env.NEXT_PUBLIC_PARTYKIT_HOST
+  if (envHost && envHost !== 'localhost:1999') return envHost
+
+  // En dev sin env var configurado: mismo hostname que el navegador + puerto 1999
+  // Funciona en red local (IP) y en localhost
   if (typeof window !== 'undefined') {
     return `${window.location.hostname}:1999`
   }

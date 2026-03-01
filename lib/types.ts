@@ -54,9 +54,10 @@ export interface RoomState {
 // ─── WebSocket Messages: Cliente → Servidor ────────────────────────────────
 
 export type ClientMessage =
-  | { type: 'JOIN';       name: string; isHost: boolean }
-  | { type: 'PITCH';      hz: number | null; timestamp: number }
-  | { type: 'START_GAME'; song: Song }
+  | { type: 'JOIN';         name: string; isHost: boolean }
+  | { type: 'PITCH';        hz: number | null; timestamp: number }
+  | { type: 'START_GAME';   song: Song }
+  | { type: 'RESTART_SONG' }
   | { type: 'SONG_ENDED' }
 
 // ─── WebSocket Messages: Servidor → Cliente ────────────────────────────────
