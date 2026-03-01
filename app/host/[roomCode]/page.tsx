@@ -8,6 +8,7 @@ import { Lobby } from '@/components/game/Lobby'
 import { LyricDisplay } from '@/components/game/LyricDisplay'
 import { ScoreBoard } from '@/components/game/ScoreBoard'
 import type { ClientMessage, ServerMessage, Song } from '@/lib/types'
+import { getPartyHost } from '@/lib/partyHost'
 
 const HOST_NAME = 'Host'
 
@@ -18,7 +19,7 @@ export default function HostPage({ params }: { params: Promise<{ roomCode: strin
   const songStartedRef = useRef(false)
 
   const socket = usePartySocket({
-    host: process.env.NEXT_PUBLIC_PARTYKIT_HOST ?? 'localhost:1999',
+    host: getPartyHost(),
     room: roomCode,
     onOpen() {
       setIsHost(true)

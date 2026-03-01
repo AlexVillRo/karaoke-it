@@ -5,10 +5,10 @@ import usePartySocket from 'partysocket/react'
 import { PitchDetector } from 'pitchy'
 import { useGameStore } from '@/stores/gameStore'
 import { LyricDisplay } from '@/components/game/LyricDisplay'
-import { PitchMeter } from '@/components/game/PitchMeter'
 import { evaluatePitch, getActiveNote, hzToMidi } from '@/lib/scoring'
 import type { ClientMessage, RoomState, Player, ServerMessage } from '@/lib/types'
-import { Mic, MicOff } from 'lucide-react'
+import { getPartyHost } from '@/lib/partyHost'
+import { Mic, MicOff, WifiOff } from 'lucide-react'
 import clsx from 'clsx'
 
 export default function PlayerPage({ params }: { params: Promise<{ roomCode: string }> }) {
@@ -19,18 +19,32 @@ export default function PlayerPage({ params }: { params: Promise<{ roomCode: str
   const [joined, setJoined] = useState(false)
   const [micActive, setMicActive] = useState(false)
   const [micError, setMicError] = useState('')
+  const [wsConnected, setWsConnected] = useState(false)
+
+  // Refs para acceder a valores actuales dentro de callbacks del socket (evita closures stale)
+  const nameRef  = useRef('')
+  const joinedRef = useRef(false)
+  useEffect(() => { nameRef.current = name },   [name])
+  useEffect(() => { joinedRef.current = joined }, [joined])
 
   // Refs para el audio pipeline
   const audioCtxRef = useRef<AudioContext | null>(null)
-  const analyserRef = useRef<AnalyserNode | null>(null)
-  const detectorRef = useRef<PitchDetector<Float32Array> | null>(null)
-  const rafRef = useRef<number>(0)
+  const rafRef      = useRef<number>(0)
 
   const socket = usePartySocket({
-    host: process.env.NEXT_PUBLIC_PARTYKIT_HOST ?? 'localhost:1999',
+    host: getPartyHost(),
     room: roomCode,
     onOpen() {
+      setWsConnected(true)
       setLocalPlayerId(socket.id)
+      // Re-enviar JOIN en cada reconexión para que el servidor registre al jugador
+      if (joinedRef.current && nameRef.current) {
+        const msg: ClientMessage = { type: 'JOIN', name: nameRef.current, isHost: false }
+        socket.send(JSON.stringify(msg))
+      }
+    },
+    onClose() {
+      setWsConnected(false)
     },
     onMessage(evt) {
       const msg: ServerMessage = JSON.parse(evt.data)
@@ -41,41 +55,57 @@ export default function PlayerPage({ params }: { params: Promise<{ roomCode: str
   // ── Micrófono ─────────────────────────────────────────────────────────
 
   const startMic = useCallback(async () => {
+    // iOS Safari (y cualquier navegador) bloquea getUserMedia en contextos no seguros (HTTP sobre IP)
+    if (!window.isSecureContext) {
+      setMicError(
+        'Tu navegador requiere HTTPS para usar el micrófono. ' +
+        'Pídele al host la URL segura (ngrok) o conéctate desde localhost.'
+      )
+      return
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setMicError('Este navegador no soporta acceso al micrófono.')
+      return
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-      const ctx = new AudioContext()
+      const ctx    = new AudioContext()
       const source = ctx.createMediaStreamSource(stream)
       const analyser = ctx.createAnalyser()
       analyser.fftSize = 2048
       source.connect(analyser)
 
       const detector = PitchDetector.forFloat32Array(analyser.fftSize)
-      const buffer = new Float32Array(detector.inputLength)
+      const buffer   = new Float32Array(detector.inputLength)
 
       audioCtxRef.current = ctx
-      analyserRef.current = analyser
-      detectorRef.current = detector
-
       setMicActive(true)
       setMicError('')
 
       function tick() {
         analyser.getFloatTimeDomainData(buffer)
         const [pitch, clarity] = detector.findPitch(buffer, ctx.sampleRate)
-
-        // Solo enviar si hay suficiente claridad (voz detectada, no ruido)
         const hz = clarity > 0.85 && pitch > 60 && pitch < 1200 ? pitch : null
         setLocalHz(hz)
-
-        // Enviar al servidor
-        const msg: ClientMessage = { type: 'PITCH', hz, timestamp: Date.now() }
-        socket.send(JSON.stringify(msg))
-
+        socket.send(JSON.stringify({ type: 'PITCH', hz, timestamp: Date.now() } satisfies ClientMessage))
         rafRef.current = requestAnimationFrame(tick)
       }
       rafRef.current = requestAnimationFrame(tick)
-    } catch {
-      setMicError('No se pudo acceder al micrófono. Revisa los permisos.')
+
+    } catch (err) {
+      if (err instanceof DOMException) {
+        if (err.name === 'NotAllowedError') {
+          setMicError('Permiso denegado. Ve a Ajustes > Safari > Micrófono y actívalo para este sitio.')
+        } else if (err.name === 'NotFoundError') {
+          setMicError('No se encontró micrófono en este dispositivo.')
+        } else {
+          setMicError(`Error de micrófono: ${err.message}`)
+        }
+      } else {
+        setMicError('No se pudo acceder al micrófono.')
+      }
     }
   }, [socket, setLocalHz])
 
@@ -87,7 +117,6 @@ export default function PlayerPage({ params }: { params: Promise<{ roomCode: str
     setLocalHz(null)
   }, [setLocalHz])
 
-  // Parar el mic cuando la canción termine
   useEffect(() => {
     if (roomState?.phase === 'RESULTS') stopMic()
   }, [roomState?.phase, stopMic])
@@ -109,25 +138,32 @@ export default function PlayerPage({ params }: { params: Promise<{ roomCode: str
   // ── Derivados ─────────────────────────────────────────────────────────
 
   const localPlayer = roomState?.players.find(p => p.id === localPlayerId)
-  const currentTime = roomState?.songStartTime
-    ? (Date.now() - roomState.songStartTime) / 1000
-    : 0
-  const activeNote = roomState?.currentSong
-    ? getActiveNote(roomState.currentSong.notes, currentTime)
-    : null
-  const playerMidi = localHz ? hzToMidi(localHz) : null
+  const currentTime = roomState?.songStartTime ? (Date.now() - roomState.songStartTime) / 1000 : 0
+  const activeNote  = roomState?.currentSong ? getActiveNote(roomState.currentSong.notes, currentTime) : null
+  const playerMidi  = localHz ? hzToMidi(localHz) : null
   const { accuracy } = evaluatePitch(playerMidi, activeNote)
 
   // ── Render ─────────────────────────────────────────────────────────────
 
-  // Pantalla de nombre
   if (!joined) {
     return (
       <div className="min-h-screen bg-[#0a0a0f] text-white flex flex-col items-center justify-center p-8 gap-6">
         <h1 className="text-4xl font-black text-violet-400">
           Karaoke<span className="text-white">IT</span>
         </h1>
-        <p className="text-white/40">Sala: <span className="font-mono text-white">{roomCode.toUpperCase()}</span></p>
+        <p className="text-white/40">
+          Sala: <span className="font-mono text-white">{roomCode.toUpperCase()}</span>
+        </p>
+
+        {/* Indicador de conexión WS */}
+        <div className={clsx(
+          'flex items-center gap-2 text-xs px-3 py-1 rounded-full',
+          wsConnected ? 'text-emerald-400 bg-emerald-400/10' : 'text-white/30 bg-white/5'
+        )}>
+          <div className={clsx('w-1.5 h-1.5 rounded-full', wsConnected ? 'bg-emerald-400 animate-pulse' : 'bg-white/20')} />
+          {wsConnected ? 'Conectado' : 'Conectando al servidor...'}
+        </div>
+
         <form onSubmit={handleJoin} className="flex flex-col gap-4 w-full max-w-sm">
           <input
             value={name}
@@ -139,7 +175,8 @@ export default function PlayerPage({ params }: { params: Promise<{ roomCode: str
           />
           <button
             type="submit"
-            className="bg-violet-600 hover:bg-violet-500 text-white font-bold py-3 rounded-xl text-lg transition-colors"
+            disabled={!wsConnected}
+            className="bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-3 rounded-xl text-lg transition-colors"
           >
             Unirme
           </button>
@@ -148,7 +185,8 @@ export default function PlayerPage({ params }: { params: Promise<{ roomCode: str
     )
   }
 
-  // Lobby
+  // ── Lobby ─────────────────────────────────────────────────────────────
+
   if (roomState?.phase === 'LOBBY') {
     return (
       <div className="min-h-screen bg-[#0a0a0f] text-white flex flex-col items-center justify-center p-8 gap-6">
@@ -161,12 +199,22 @@ export default function PlayerPage({ params }: { params: Promise<{ roomCode: str
         <p className="text-xl font-bold">{name}</p>
         <p className="text-white/40 text-center">Esperando que el host<br />inicie el juego...</p>
 
-        {/* Lista de jugadores en sala */}
+        {/* Aviso HTTPS si el mic no estará disponible */}
+        {!window.isSecureContext && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 text-center max-w-xs">
+            <p className="text-amber-400 text-xs font-bold mb-1">⚠ Micrófono no disponible</p>
+            <p className="text-amber-400/70 text-xs">
+              Para usar el mic desde iPhone, el host necesita compartir una URL HTTPS (usa ngrok).
+            </p>
+          </div>
+        )}
+
         <div className="flex flex-col gap-2 mt-4">
           {roomState.players.filter(p => !p.isHost).map(p => (
             <div key={p.id} className="flex items-center gap-3 text-sm text-white/60">
               <div className="w-2 h-2 rounded-full" style={{ backgroundColor: p.color }} />
               {p.name}
+              {!p.connected && <span className="text-white/20 text-xs">(desconectado)</span>}
             </div>
           ))}
         </div>
@@ -174,7 +222,8 @@ export default function PlayerPage({ params }: { params: Promise<{ roomCode: str
     )
   }
 
-  // Countdown
+  // ── Countdown ─────────────────────────────────────────────────────────
+
   if (roomState?.phase === 'COUNTDOWN') {
     return (
       <div className="min-h-screen bg-[#0a0a0f] text-white flex flex-col items-center justify-center gap-6">
@@ -182,7 +231,7 @@ export default function PlayerPage({ params }: { params: Promise<{ roomCode: str
         <div className="text-[8rem] font-black text-violet-400 leading-none">
           {roomState.countdown}
         </div>
-        {!micActive && (
+        {!micActive && window.isSecureContext && (
           <button
             onClick={startMic}
             className="bg-cyan-600 hover:bg-cyan-500 text-black font-bold py-3 px-6 rounded-xl flex items-center gap-2"
@@ -190,11 +239,13 @@ export default function PlayerPage({ params }: { params: Promise<{ roomCode: str
             <Mic size={18} /> Activar micrófono
           </button>
         )}
+        {micError && <p className="text-red-400 text-xs text-center max-w-xs px-4">{micError}</p>}
       </div>
     )
   }
 
-  // Playing
+  // ── Playing ───────────────────────────────────────────────────────────
+
   if (roomState?.phase === 'PLAYING' && roomState.currentSong) {
     return (
       <LivePlayerView
@@ -212,17 +263,15 @@ export default function PlayerPage({ params }: { params: Promise<{ roomCode: str
     )
   }
 
-  // Results
+  // ── Results ───────────────────────────────────────────────────────────
+
   if (roomState?.phase === 'RESULTS') {
-    const sorted = [...(roomState?.players.filter(p => !p.isHost) ?? [])].sort((a, b) => b.score - a.score)
-    const myRank = sorted.findIndex(p => p.id === localPlayerId) + 1
+    const sorted  = [...(roomState.players.filter(p => !p.isHost))].sort((a, b) => b.score - a.score)
+    const myRank  = sorted.findIndex(p => p.id === localPlayerId) + 1
     return (
       <div className="min-h-screen bg-[#0a0a0f] text-white flex flex-col items-center justify-center p-8 gap-6">
         <p className="text-white/40 text-sm">Tu resultado</p>
-        <div
-          className="text-7xl font-black"
-          style={{ color: localPlayer?.color ?? '#7c3aed' }}
-        >
+        <div className="text-7xl font-black" style={{ color: localPlayer?.color ?? '#7c3aed' }}>
           #{myRank}
         </div>
         <p className="text-2xl font-bold">{localPlayer?.score.toLocaleString()} pts</p>
@@ -245,14 +294,19 @@ export default function PlayerPage({ params }: { params: Promise<{ roomCode: str
     )
   }
 
+  // ── Fallback: joined pero roomState aún no llegó ───────────────────────
+
   return (
-    <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center text-white/40">
-      Conectando...
+    <div className="min-h-screen bg-[#0a0a0f] flex flex-col items-center justify-center gap-4 text-white/40">
+      {wsConnected
+        ? <><div className="w-6 h-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" /><p className="text-sm">Sincronizando sala...</p></>
+        : <><WifiOff size={32} className="text-white/20" /><p className="text-sm">Sin conexión al servidor</p><p className="text-xs text-white/20">Verifica que el host esté corriendo</p></>
+      }
     </div>
   )
 }
 
-// ── Vista durante la canción (se actualiza 20fps) ──────────────────────────
+// ── Vista durante la canción ───────────────────────────────────────────────
 
 function LivePlayerView({
   roomState, localPlayer, micActive, micError, localHz,
@@ -273,23 +327,16 @@ function LivePlayerView({
 
   useEffect(() => {
     const id = setInterval(() => {
-      if (roomState.songStartTime) {
-        setCurrentTime((Date.now() - roomState.songStartTime) / 1000)
-      }
+      if (roomState.songStartTime) setCurrentTime((Date.now() - roomState.songStartTime) / 1000)
     }, 50)
     return () => clearInterval(id)
   }, [roomState.songStartTime])
 
-  const accuracyColors = {
-    PERFECT: 'text-emerald-400',
-    GOOD: 'text-cyan-400',
-    OK: 'text-amber-400',
-    MISS: 'text-white/20',
-  }
+  const accuracyColors = { PERFECT: 'text-emerald-400', GOOD: 'text-cyan-400', OK: 'text-amber-400', MISS: 'text-white/20' }
+  const accuracyBg     = { PERFECT: '#10b981', GOOD: '#06b6d4', OK: '#f59e0b', MISS: '#ef4444' }
 
   return (
     <div className="min-h-screen bg-[#0a0a0f] text-white flex flex-col">
-      {/* Score y mic button */}
       <div className="flex justify-between items-center px-4 pt-4 pb-2">
         <div>
           <p className="text-white/40 text-xs">Puntos</p>
@@ -297,7 +344,6 @@ function LivePlayerView({
             {localPlayer?.score.toLocaleString() ?? 0}
           </p>
         </div>
-
         <button
           onClick={micActive ? onStopMic : onStartMic}
           className={clsx(
@@ -313,52 +359,35 @@ function LivePlayerView({
       </div>
 
       {micError && (
-        <p className="text-red-400 text-xs text-center px-4">{micError}</p>
+        <p className="text-amber-400 text-xs text-center px-6 pb-2 leading-relaxed">{micError}</p>
       )}
 
-      {/* Lyrics */}
       <div className="flex-1 flex items-center justify-center py-4">
-        <LyricDisplay
-          notes={roomState.currentSong!.notes}
-          currentTime={currentTime}
-          compact
-        />
+        <LyricDisplay notes={roomState.currentSong!.notes} currentTime={currentTime} compact />
       </div>
 
-      {/* Pitch meter + accuracy */}
       <div className="flex flex-col items-center gap-3 px-8 pb-8">
         <p className={clsx('text-sm font-bold tracking-widest uppercase transition-colors', accuracyColors[accuracy])}>
           {micActive && localHz
-            ? accuracy === 'MISS' ? 'Desafinado' : accuracy === 'OK' ? '¡Cerca!' : accuracy === 'GOOD' ? '¡Bien!' : '¡Perfecto!'
+            ? ({ PERFECT: '¡Perfecto!', GOOD: '¡Bien!', OK: '¡Cerca!', MISS: 'Desafinado' })[accuracy]
             : 'Canta...'}
         </p>
 
-        {/* Barra horizontal de pitch */}
         <div className="w-full h-14 bg-white/5 rounded-2xl relative overflow-hidden border border-white/10">
-          {/* Zona objetivo */}
           {activeNoteMidi && (
-            <div
-              className="absolute top-0 bottom-0 opacity-30 transition-all duration-200"
-              style={{
-                left: '35%',
-                right: '35%',
-                backgroundColor: localPlayer?.color ?? '#7c3aed',
-              }}
-            />
+            <div className="absolute top-0 bottom-0 opacity-25" style={{ left: '35%', right: '35%', backgroundColor: localPlayer?.color ?? '#7c3aed' }} />
           )}
-          {/* Nota objetivo */}
           {activeNoteMidi && (
-            <div className="absolute top-0 bottom-0 w-1 bg-white/60" style={{ left: '50%', transform: 'translateX(-50%)' }} />
+            <div className="absolute top-0 bottom-0 w-0.5 bg-white/50" style={{ left: '50%', transform: 'translateX(-50%)' }} />
           )}
-          {/* Voz del jugador */}
           {playerMidi && activeNoteMidi && (
             <div
               className="absolute top-2 bottom-2 w-8 rounded-xl transition-all duration-75"
               style={{
                 left: `calc(50% + ${Math.max(-45, Math.min(45, (playerMidi - activeNoteMidi) * 8))}%)`,
                 transform: 'translateX(-50%)',
-                backgroundColor: { PERFECT: '#10b981', GOOD: '#06b6d4', OK: '#f59e0b', MISS: '#ef4444' }[accuracy],
-                boxShadow: `0 0 12px ${{ PERFECT: '#10b981', GOOD: '#06b6d4', OK: '#f59e0b', MISS: '#ef4444' }[accuracy]}`,
+                backgroundColor: accuracyBg[accuracy],
+                boxShadow: `0 0 12px ${accuracyBg[accuracy]}`,
               }}
             />
           )}
