@@ -1,0 +1,6 @@
+{
+  "$schema": "https://www.partykit.io/schema.json",
+  "name": "karaoke-game",
+  "main": "party/game.ts",
+  "compatibilityDate": "2023-11-10"
+}
